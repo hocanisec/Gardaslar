@@ -2,14 +2,21 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
+const fs = require("fs"); // Dosya kontrolü için ekledik
 
-// 1. FIREBASE BAĞLANTISI
-// Bu dosyanın (serviceAccountKey.json) backend klasöründe olduğundan emin ol!
-const serviceAccount = require("./serviceAccountKey.json");
+// 1. FIREBASE BAĞLANTISI (Render Uyumlu Hata Kontrolü)
+const serviceAccountPath = "./serviceAccountKey.json";
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+if (fs.existsSync(serviceAccountPath)) {
+  const serviceAccount = require(serviceAccountPath);
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+  console.log("🚀 Firebase Admin Başlatıldı");
+} else {
+  console.error("❌ HATA: serviceAccountKey.json dosyası bulunamadı!");
+  console.info("💡 İpucu: Render panelinde 'Secret Files' kısmına bu dosyayı eklediğinizden emin olun.");
+}
 
 const db = admin.firestore(); 
 
@@ -20,7 +27,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 2. KÜFÜR FİLTRESİ (Basit versiyon)
+// 2. KÜFÜR FİLTRESİ
 function cleanBadWords(text) {
   const bannedWords = ["küfür1", "salak", "aptal"]; 
   let cleaned = text;
@@ -33,10 +40,10 @@ function cleanBadWords(text) {
 
 // 3. API ENDPOINT'LERİ
 
-// Sunucu çalışıyor mu testi
-app.get("/", (req, res) => res.send("✅ HocanıSeç Backend Firebase ile Aktif!"));
+// Ana Sayfa Testi (Render'ın çalışıp çalışmadığını anlamak için)
+app.get("/", (req, res) => res.send("HocanıSeç Backend Firebase ile Aktif ✅"));
 
-// FIREBASE ÜZERİNDEN HOCA ARAMA
+// HOCA ARAMA
 app.get("/api/search", async (req, res) => {
   const query = req.query.q;
   if (!query || query.length < 2) return res.json({ profs: [] });
@@ -47,8 +54,8 @@ app.get("/api/search", async (req, res) => {
     snapshot.forEach(doc => allProfs.push({ id: doc.id, ...doc.data() }));
 
     const filtered = allProfs.filter(p => 
-      p.name.toLowerCase().includes(query.toLowerCase()) || 
-      p.school.toLowerCase().includes(query.toLowerCase())
+      (p.name && p.name.toLowerCase().includes(query.toLowerCase())) || 
+      (p.school && p.school.toLowerCase().includes(query.toLowerCase()))
     );
 
     res.json({ profs: filtered.slice(0, 10) });
@@ -80,7 +87,23 @@ app.post("/api/comments", async (req, res) => {
   }
 });
 
-// OTP (MAİL KODU) İŞLEMLERİ
+// HOCAYA AİT ONAYLANMIŞ YORUMLARI GETİR
+app.get("/api/comments/:profId", async (req, res) => {
+  try {
+    const snapshot = await db.collection("comments")
+      .where("profId", "==", req.params.profId)
+      .where("isApproved", "==", true)
+      .get();
+    
+    let comments = [];
+    snapshot.forEach(doc => comments.push({ id: doc.id, ...doc.data() }));
+    res.json(comments);
+  } catch (err) {
+    res.status(500).json({ error: "Yorumlar çekilemedi." });
+  }
+});
+
+// MAIL KODU GÖNDERME
 app.post("/send-code", async (req, res) => {
   const { email } = req.body;
   try {
@@ -88,7 +111,7 @@ app.post("/send-code", async (req, res) => {
     await sendCode(email, code);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: "Mail gönderilemedi." });
+    res.status(500).json({ error: "Mail hatası" });
   }
 });
 
@@ -99,5 +122,8 @@ app.post("/verify-code", (req, res) => {
   res.json({ ok: true, token: "verified-" + Date.now() });
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✅ Backend Firebase ile çalışıyor: http://localhost:${PORT}`));
+// 4. PORT AYARI (Render için 10000 veya process.env.PORT şarttır)
+const PORT = process.env.PORT || 10000; 
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Sunucu aktif: ${PORT}`);
+});
