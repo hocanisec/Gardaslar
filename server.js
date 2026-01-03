@@ -124,6 +124,46 @@ app.post("/verify-code", (req, res) => {
 
 // 4. PORT AYARI (Render için 10000 veya process.env.PORT şarttır)
 const PORT = process.env.PORT || 10000; 
+// --- ADMIN API ---
+app.get("/api/admin/stats", async (req, res) => {
+  const profs = await db.collection("professors").get();
+  res.json({ profCount: profs.size, schoolCount: 208 });
+});
+
+app.get("/api/admin/professors", async (req, res) => {
+  const snapshot = await db.collection("professors").get();
+  let list = [];
+  snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+  res.json(list);
+});
+
+app.post("/api/admin/professors", async (req, res) => {
+  const { name, school } = req.body;
+  await db.collection("professors").add({ name, school, avgRating: 0 });
+  res.json({ ok: true });
+});
+
+app.delete("/api/admin/professors/:id", async (req, res) => {
+  await db.collection("professors").doc(req.params.id).delete();
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/pending-comments", async (req, res) => {
+  const snapshot = await db.collection("comments").where("isApproved", "==", false).get();
+  let list = [];
+  snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+  res.json(list);
+});
+
+app.post("/api/admin/approve-comment/:id", async (req, res) => {
+  await db.collection("comments").doc(req.params.id).update({ isApproved: true });
+  res.json({ ok: true });
+});
+
+app.delete("/api/admin/delete-comment/:id", async (req, res) => {
+  await db.collection("comments").doc(req.params.id).delete();
+  res.json({ ok: true });
+});
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Sunucu aktif: ${PORT}`);
 });
