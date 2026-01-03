@@ -1,40 +1,38 @@
 const nodemailer = require("nodemailer");
 
 function transporter() {
+  console.log("Transporter ayarlanıyor...");
   return nodemailer.createTransport({
-    host: "mail.hocanisec.com.tr", // Eğer bu çalışmazsa 'smtp.hocanisec.com.tr' yap
-    port: 465, // SSL bağlantı portu
-    secure: true, // 465 için true olmalı
+    host: "mail.hocanisec.com.tr", // Eğer hata verirse burayı 'smtp.hocanisec.com.tr' yapmayı dene
+    port: 587, // Port 465 hata veriyorsa 587 en garantisidir
+    secure: false, // Port 587 için bu false olmalı
     auth: {
-      user: process.env.MAIL_USER, // iletisim@hocanisec.com.tr
-      pass: process.env.MAIL_PASS  // Şifren
+      user: process.env.MAIL_USER,
+      pass: process.env.MAIL_PASS
     },
     tls: {
-      // Sunucu sertifikası hatalarını (self-signed cert vb.) görmezden gel
-      rejectUnauthorized: false 
+      rejectUnauthorized: false // Sertifika hatalarını geçmek için şart
     }
   });
 }
 
 async function sendCode(email, code) {
   const t = transporter();
+  
+  console.log(`📧 Mail gönderimi başlatıldı: ${email}`);
+  
   try {
-    await t.sendMail({
+    const info = await t.sendMail({
       from: `"HocanıSeç" <${process.env.MAIL_USER}>`,
       to: email,
       subject: "HocanıSeç Doğrulama Kodu",
-      html: `
-        <div style="font-family:sans-serif; text-align:center; padding:20px; border:1px solid #eee; border-radius:10px;">
-          <h2 style="color:#2563eb;">Doğrulama Kodun</h2>
-          <p>Sisteme giriş yapmak için kodun aşağıdadır:</p>
-          <h1 style="background:#f1f5f9; padding:10px; border-radius:8px; letter-spacing:5px;">${code}</h1>
-          <p style="color:#64748b; font-size:12px;">Bu kod 5 dakika geçerlidir.</p>
-        </div>`
+      html: `<h3>Doğrulama Kodunuz: ${code}</h3>`
     });
-    console.log("✅ Mail başarıyla gönderildi: ", email);
+    console.log("✅ Mail başarıyla gönderildi! Mesaj ID:", info.messageId);
+    return true;
   } catch (err) {
-    console.error("❌ Mail Gönderim Hatası:", err);
-    throw err; // Hatayı server.js'ye fırlat ki ön yüzde görebilelim
+    console.error("❌ NODEMAILER HATASI DETAYI:", err); // Hatayı Render loglarına basar
+    throw err;
   }
 }
 
