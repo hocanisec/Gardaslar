@@ -17,19 +17,11 @@ function transporter() {
 
 async function sendCode(email, code) {
   const t = transporter();
-  try {
-    await t.sendMail({
-      from: `"HocanıSeç" <${process.env.MAIL_USER}>`,
-      to: email,
-      subject: "HocanıSeç Doğrulama Kodu",
-      html: `<h3>Doğrulama Kodunuz: ${code}</h3>`
-    });
-    console.log(`✅ Mail başarıyla gönderildi: ${email}`);
-    return true;
-  } catch (err) {
-    console.error("❌ GMAIL HATASI:", err.message);
-    throw err;
-  }
+  await t.sendMail({
+    from: `"HocanıSeç" <${process.env.MAIL_USER}>`,
+    to: email,
+    subject: "Doğrulama Kodu",
+    html: `<h3>Kodunuz: ${code}</h3>`
+  });
 }
-
 module.exports = sendCode;
