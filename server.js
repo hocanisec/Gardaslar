@@ -1,24 +1,15 @@
-// server.js - GÜNCELLENMİŞ VERSİYON
+// server.js - SUPABASE VERSİYONU
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const admin = require("firebase-admin");
-const fs = require("fs");
+const { createClient } = require("@supabase/supabase-js");
 
-// 1. FIREBASE BAĞLANTISI
-const serviceAccountPath = "./serviceAccountKey.json";
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://ozcdrdesudvbkecxthom.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96Y2RyZGVzdWR2YmtlY3h0aG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDc1MDIsImV4cCI6MjA5NTg4MzUwMn0.Jj0a9-qy-CTVzV88AaH94dW0E6BdrUNu7ly55fu_Oos";
 
-if (fs.existsSync(serviceAccountPath)) {
-  const serviceAccount = require(serviceAccountPath);
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-  console.log("🚀 Firebase Admin Başlatıldı");
-} else {
-  console.error("❌ HATA: serviceAccountKey.json dosyası bulunamadı!");
-}
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log("Supabase Baglantisi Kuruldu");
 
-const db = admin.firestore(); 
 const sendCode = require("./mailer");
 const { createCode, verifyCode } = require("./codes");
 
@@ -26,9 +17,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 2. KÜFÜR FİLTRESİ
 function cleanBadWords(text) {
-  const bannedWords = ["küfür1", "salak", "aptal", "gerizekalı"]; 
+  const bannedWords = ["salak", "aptal", "gerizekalı"];
   let cleaned = text;
   bannedWords.forEach(word => {
     const regex = new RegExp(word, "gi");
@@ -37,114 +27,100 @@ function cleanBadWords(text) {
   return cleaned;
 }
 
-// 3. API ENDPOINT'LERİ
+app.get("/", (req, res) => res.send("HocanisEc Backend Aktif (Supabase)"));
 
-// Ana Sayfa Testi
-app.get("/", (req, res) => res.send("HocanıSeç Backend Aktif ✅"));
-
-// HOCA ARAMA
 app.get("/api/search", async (req, res) => {
   const query = req.query.q;
   if (!query || query.length < 2) return res.json({ profs: [] });
-
   try {
-    const snapshot = await db.collection("professors").get();
-    let allProfs = [];
-    snapshot.forEach(doc => allProfs.push({ id: doc.id, ...doc.data() }));
-
-    const filtered = allProfs.filter(p => 
-      (p.name && p.name.toLowerCase().includes(query.toLowerCase())) || 
-      (p.school && p.school.toLowerCase().includes(query.toLowerCase()))
-    );
-
-    res.json({ profs: filtered.slice(0, 10) });
+    const { data, error } = await supabase
+      .from("professors")
+      .select("id, name, title, school, department, faculty, avg_rating, comment_count")
+      .or("name.ilike.%" + query + "%,school.ilike.%" + query + "%")
+      .limit(10);
+    if (error) throw error;
+    res.json({ profs: data });
   } catch (err) {
-    console.error("Arama hatası:", err);
-    res.status(500).json({ error: "Arama hatası" });
+    res.status(500).json({ error: "Arama hatasi" });
   }
 });
 
-// --- YENİ EKLENEN: KULLANICI KAYDI (NICKNAME İLE) ---
 app.post("/api/auth/register", async (req, res) => {
   const { email, nickname } = req.body;
   if (!email || !nickname) return res.status(400).json({ error: "Eksik bilgi" });
-
   try {
-    // Kullanıcıyı veritabanına kaydet
-    await db.collection("users").doc(email).set({
-      email: email,
-      nickname: nickname,
-      createdAt: admin.firestore.Timestamp.now()
-    });
-    res.json({ ok: true, message: "Kullanıcı kaydedildi." });
+    const { error } = await supabase
+      .from("users")
+      .upsert({ email, nickname, created_at: new Date().toISOString() }, { onConflict: "email" });
+    if (error) throw error;
+    res.json({ ok: true, message: "Kullanici kaydedildi." });
   } catch (err) {
-    console.error("Kayıt hatası:", err);
-    res.status(500).json({ error: "Kayıt oluşturulamadı." });
+    res.status(500).json({ error: "Kayit olusturulamadi." });
   }
 });
 
-// --- GÜNCELLENEN: YORUM GÖNDERME (KULLANICI BİLGİSİ İLE) ---
 app.post("/api/comments", async (req, res) => {
-  // Frontend'den email ve nickname bilgisini de bekliyoruz artık
   let { profId, text, rating, token, userEmail, userNickname } = req.body;
-  
-  if (!token) return res.status(401).json({ error: "Giriş yapmalısın" });
-
+  if (!token) return res.status(401).json({ error: "Giris yapmalisin" });
   try {
     const moderatedText = cleanBadWords(text);
-    const newComment = {
-      profId,
+    const { error } = await supabase.from("comments").insert({
+      prof_id: profId,
       text: moderatedText,
       rating: Number(rating),
       helpful: 0,
-      isApproved: false,
-      userEmail: userEmail || "anonim", // Kullanıcı emailini kaydet
-      userNickname: userNickname || "Anonim", // Nickname'i kaydet
-      createdAt: admin.firestore.Timestamp.now()
-    };
-    await db.collection("comments").add(newComment);
-    res.json({ ok: true, msg: "Yorum onay için gönderildi." });
+      is_approved: false,
+      user_email: userEmail || "anonim",
+      user_nickname: userNickname || "Anonim",
+      created_at: new Date().toISOString()
+    });
+    if (error) throw error;
+    res.json({ ok: true, msg: "Yorum onay icin gonderildi." });
   } catch (err) {
     res.status(500).json({ error: "Yorum kaydedilemedi." });
   }
 });
 
-// --- YENİ EKLENEN: KULLANICININ KENDİ YORUMLARI ---
 app.get("/api/my-comments", async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: "Email gerekli" });
-
   try {
-    const snapshot = await db.collection("comments")
-      .where("userEmail", "==", email)
-      .get();
-    
-    let myComments = [];
-    snapshot.forEach(doc => myComments.push({ id: doc.id, ...doc.data() }));
-    res.json(myComments);
+    const { data, error } = await supabase.from("comments").select("*")
+      .eq("user_email", email).order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json(data);
   } catch (err) {
-    console.error("Yorum çekme hatası:", err);
-    res.status(500).json({ error: "Yorumlar alınamadı." });
+    res.status(500).json({ error: "Yorumlar alinamadi." });
   }
 });
 
-// HOCAYA AİT ONAYLANMIŞ YORUMLARI GETİR
 app.get("/api/comments/:profId", async (req, res) => {
   try {
-    const snapshot = await db.collection("comments")
-      .where("profId", "==", req.params.profId)
-      .where("isApproved", "==", true)
-      .get();
-    
-    let comments = [];
-    snapshot.forEach(doc => comments.push({ id: doc.id, ...doc.data() }));
-    res.json(comments);
+    const { data, error } = await supabase.from("comments").select("*")
+      .eq("prof_id", req.params.profId)
+      .eq("is_approved", true)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json(data);
   } catch (err) {
-    res.status(500).json({ error: "Yorumlar çekilemedi." });
+    res.status(500).json({ error: "Yorumlar cekilemedi." });
   }
 });
 
-// MAIL KODU GÖNDERME
+app.post("/api/comments/:commentId/vote", async (req, res) => {
+  try {
+    const { data: comment, error: fetchErr } = await supabase
+      .from("comments").select("helpful").eq("id", req.params.commentId).single();
+    if (fetchErr) throw fetchErr;
+    const { error } = await supabase.from("comments")
+      .update({ helpful: (comment.helpful || 0) + 1 }).eq("id", req.params.commentId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Oylama basarisiz." });
+  }
+});
+
 app.post("/send-code", async (req, res) => {
   const { email } = req.body;
   try {
@@ -152,25 +128,90 @@ app.post("/send-code", async (req, res) => {
     await sendCode(email, code);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: "Mail hatası" });
+    res.status(500).json({ error: "Mail hatasi" });
   }
 });
 
 app.post("/verify-code", (req, res) => {
   const { email, code } = req.body;
   const ok = verifyCode(email, code);
-  if (!ok) return res.status(400).json({ error: "Kod hatalı veya süresi dolmuş" });
+  if (!ok) return res.status(400).json({ error: "Kod hatali veya suresi dolmus" });
   res.json({ ok: true, token: "verified-" + Date.now() });
 });
 
-// ADMIN API KISIMLARI (Değişmedi)
 app.get("/api/admin/stats", async (req, res) => {
-  const profs = await db.collection("professors").get();
-  res.json({ profCount: profs.size, schoolCount: 208 });
+  try {
+    const { count: profCount } = await supabase.from("professors").select("*", { count: "exact", head: true });
+    const { count: schoolCount } = await supabase.from("universities").select("*", { count: "exact", head: true });
+    res.json({ profCount, schoolCount });
+  } catch (err) {
+    res.status(500).json({ error: "Istatistikler alinamadi." });
+  }
 });
-// ... (Diğer admin route'ları aynı kalabilir)
 
-const PORT = process.env.PORT || 10000; 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Sunucu aktif: ${PORT}`);
+app.get("/api/admin/professors", async (req, res) => {
+  try {
+    const { data, error } = await supabase.from("professors").select("id, name, school, department").order("name");
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Hocalar alinamadi." });
+  }
+});
+
+app.post("/api/admin/professors", async (req, res) => {
+  const { name, school } = req.body;
+  try {
+    const { error } = await supabase.from("professors").insert({ name, school, avg_rating: 0, comment_count: 0 });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Hoca eklenemedi." });
+  }
+});
+
+app.delete("/api/admin/professors/:id", async (req, res) => {
+  try {
+    const { error } = await supabase.from("professors").delete().eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Hoca silinemedi." });
+  }
+});
+
+app.get("/api/admin/pending-comments", async (req, res) => {
+  try {
+    const { data, error } = await supabase.from("comments").select("*")
+      .eq("is_approved", false).order("created_at", { ascending: true });
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Yorumlar alinamadi." });
+  }
+});
+
+app.post("/api/admin/approve-comment/:id", async (req, res) => {
+  try {
+    const { error } = await supabase.from("comments").update({ is_approved: true }).eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Yorum onaylanamadi." });
+  }
+});
+
+app.delete("/api/admin/delete-comment/:id", async (req, res) => {
+  try {
+    const { error } = await supabase.from("comments").delete().eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Yorum silinemedi." });
+  }
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("Sunucu aktif: " + PORT);
 });
