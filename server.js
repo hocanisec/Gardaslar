@@ -36,7 +36,7 @@ app.get("/api/search", async (req, res) => {
     const { data, error } = await supabase
       .from("professors")
       .select("id, name, title, school, department, faculty, avg_rating, comment_count")
-      .or("name.ilike.%" + query.toUpperCase() + "%,school.ilike.%" + query.toUpperCase() + "%")
+      .or(`name.ilike.%${query.toUpperCase()}%,school.ilike.%${query.toUpperCase()}%`)
       .limit(10);
     if (error) throw error;
     res.json({ profs: data });
