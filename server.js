@@ -45,6 +45,24 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
+// UNİVERSİTE HOCALARI (fakülte + sıralama)
+app.get("/api/school-profs", async (req, res) => {
+  const school = req.query.school;
+  if (!school) return res.status(400).json({ error: "Okul adi gerekli" });
+  try {
+    const { data, error } = await supabase
+      .from("professors")
+      .select("id, name, title, department, faculty, avg_rating, comment_count, school")
+      .ilike("school", school)
+      .order("name");
+    if (error) throw error;
+    res.json({ profs: data });
+  } catch (err) {
+    console.error("School profs hatasi:", err);
+    res.status(500).json({ error: "Hocalar alinamadi." });
+  }
+});
+
 app.post("/api/auth/register", async (req, res) => {
   const { email, nickname } = req.body;
   if (!email || !nickname) return res.status(400).json({ error: "Eksik bilgi" });
