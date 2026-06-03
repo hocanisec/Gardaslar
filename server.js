@@ -53,7 +53,7 @@ app.get("/api/school-profs", async (req, res) => {
     const { data, error } = await supabase
       .from("professors")
       .select("id, name, title, department, faculty, avg_rating, comment_count, school")
-      .ilike("school", school.toUpperCase())
+      .ilike("school", "%" + school.toUpperCase() + "%")
       .order("name");
     if (error) throw error;
     res.json({ profs: data });
